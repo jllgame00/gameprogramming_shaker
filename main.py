@@ -32,17 +32,30 @@ clock = pygame.time.Clock()
 FPS = 60
 
 # --------------------------------
+# 모드 / 상태
+# --------------------------------
+MODE_SHAKING = 0    # 셰이킹 단계
+MODE_MOVING  = 1    # 잔 위로 위치 이동 단계
+MODE_POURING = 2    # 붓기 단계
+
+mode = MODE_SHAKING
+SHAKE_THRESHOLD = 2.0   # 이 정도 이상 흔들면 이동 모드 진입
+
+# --------------------------------
 # 셰이커 / 잔 위치 세팅
 # --------------------------------
-# 셰이커 위치 (왼쪽)
+# 셰이커 위치 (기본 위치)
 base_shaker_pos = pygame.Vector2(SCREEN_WIDTH * 0.3, SCREEN_HEIGHT * 0.55)
 shaker_pos = base_shaker_pos.copy()
+
 shaker_angle = 0.0
-shake_power = 0.0
-shake_timer = 0.0
 SHAKE_ANGLE_MIN = -75
 SHAKE_ANGLE_MAX = 30
 POUR_THRESHOLD = -30  # 이 각도보다 많이 기울면 붓기 시작
+
+# 흔들기 관련
+shake_power = 0.0
+shake_timer = 0.0
 
 # 셰이커 바디 원본 / 렉트
 shaker_body_orig = shaker_body_img
@@ -65,7 +78,8 @@ cap_offset = pygame.Vector2(
 )
 
 # 캡이 옆으로 치워졌을 때 위치
-cap_side_pos = pygame.Vector2(SCREEN_WIDTH * 0.45, baseline_y - shaker_cap_rect.height * 0.5)
+cap_side_pos = pygame.Vector2(SCREEN_WIDTH * 0.45,
+                              baseline_y - shaker_cap_rect.height * 0.5)
 
 # 처음에는 캡이 셰이커 위에 있음
 cap_on_top = True
@@ -108,7 +122,8 @@ class Particle:
         self.pos += self.vel
 
     def draw(self, surface):
-        pygame.draw.circle(surface, self.color, (int(self.pos.x), int(self.pos.y)), self.radius)
+        pygame.draw.circle(surface, self.color,
+                           (int(self.pos.x), int(self.pos.y)), self.radius)
 
 particles = []
 fill_amount = 0.0          # 0 ~ 1
@@ -162,59 +177,94 @@ prev_mouse_x = None
 while running:
     dt = clock.tick(FPS) / 1000.0
 
-    shake_timer += dt
+    # -----------------------------
+    # 모드별 기본 업데이트
+    # -----------------------------
+    if mode == MODE_SHAKING:
+        # 셰이킹 애니메이션 (좌우 덜덜)
+        shake_timer += dt
+        shake_power *= 0.9
+        if shake_power < 0.01:
+            shake_power = 0.0
 
-    shake_power *= 0.9
-    if shake_power < 0.01:
-        shake_power = 0.0
+        shake_offset_x = math.sin(shake_timer * 40) * shake_power * 5
+        shaker_pos = pygame.Vector2(
+            base_shaker_pos.x + shake_offset_x,
+            base_shaker_pos.y
+        )
 
-    shake_offset_x = math.sin(shake_timer * 40) * shake_power * 5
+    # MOVING / POURING 에서는 shaker_pos를 이벤트로만 움직임
+    # (따로 처리 안 함)
 
-    shaker_pos = pygame.Vector2(base_shaker_pos.x + shake_offset_x, base_shaker_pos.y)
-
+    # -----------------------------
+    # 이벤트 처리
+    # -----------------------------
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
 
-        # 마우스로 흔들기
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:
+        # -------------------------
+        # MODE_SHAKING: 흔들기만, 각도/위치 고정
+        # -------------------------
+        if mode == MODE_SHAKING:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_dragging = True
                 prev_mouse_x = event.pos[0]
 
-        elif event.type == pygame.MOUSEBUTTONUP:
-            if event.button == 1:
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 mouse_dragging = False
                 prev_mouse_x = None
+                # 마우스 떼는 순간, 충분히 흔들었으면 이동 모드로 전환
+                if shake_power >= SHAKE_THRESHOLD:
+                    mode = MODE_MOVING
+                    # 셰이커 위치를 기준 위치로 고정
+                    shaker_pos = base_shaker_pos.copy()
 
-        elif event.type == pygame.MOUSEMOTION and mouse_dragging:
-            mx, my = event.pos
-            if prev_mouse_x is not None:
-                dx = mx - prev_mouse_x
-                shaker_angle += dx * -0.3  # 오른쪽으로 드래그 → 오른쪽 기울기
+            elif event.type == pygame.MOUSEMOTION and mouse_dragging:
+                mx, my = event.pos
+                if prev_mouse_x is not None:
+                    dx = mx - prev_mouse_x
+                    # 각도는 안 바꾸고, 흔든 강도만 올림
+                    shake_power += abs(dx) * 0.02
+                    prev_mouse_x = mx
+
+        # -------------------------
+        # MODE_MOVING: 잔 위로 위치 옮기기
+        # -------------------------
+        elif mode == MODE_MOVING:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mouse_dragging = True
+
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                mouse_dragging = False
+                # 위치 옮기기 끝 → 붓기 모드로 전환
+                mode = MODE_POURING
+                cap_on_top = False  # 캡 분리
+                # 이때 위치를 기준 위치로 사용하도록 업데이트
+                base_shaker_pos = shaker_pos.copy()
+
+            elif event.type == pygame.MOUSEMOTION and mouse_dragging:
+                mx, my = event.pos
+                shaker_pos.x = mx
+                # y는 바닥 기준에 맞춰서 유지
+                shaker_pos.y = baseline_y - shaker_body_rect.height * 0.5
+
+        # -------------------------
+        # MODE_POURING: 각도만 조절해서 붓기
+        # -------------------------
+        elif mode == MODE_POURING:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    shaker_angle += 2
+                elif event.key == pygame.K_DOWN:
+                    shaker_angle -= 2
+
                 shaker_angle = max(SHAKE_ANGLE_MIN,
                                    min(SHAKE_ANGLE_MAX, shaker_angle))
 
-                shake_power += abs(dx) * 0.02 # 숫자 키우면 더 민감해짐
-
-                prev_mouse_x = mx
-
-        # 키보드로 미세 조정
-        elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_LEFT:
-                shaker_angle += 3
-            elif event.key == pygame.K_RIGHT:
-                shaker_angle -= 3
-            shaker_angle = max(SHAKE_ANGLE_MIN,
-                               min(SHAKE_ANGLE_MAX, shaker_angle))
-
     # -----------------------------
-    # 상태 업데이트
+    # 상태 업데이트 (공통)
     # -----------------------------
-    # 각도가 붓기 임계치 넘으면 → 캡 자동으로 옆으로 치워짐(한 번 내려가면 계속 off)
-    if shaker_angle < POUR_THRESHOLD and cap_on_top:
-        cap_on_top = False
-
     # 셰이커 바디 회전
     rotated_body = pygame.transform.rotozoom(shaker_body_orig,
                                              shaker_angle, 1.0)
@@ -224,8 +274,8 @@ while running:
     rotated_mouth_offset = mouth_offset.rotate(-shaker_angle)
     mouth_pos = shaker_pos + rotated_mouth_offset
 
-    # 각도 + 캡 상태에 따라 입자 생성
-    if shaker_angle < POUR_THRESHOLD and not cap_on_top:
+    # 입자 생성 (붓기 모드 + 각도 임계치)
+    if mode == MODE_POURING and shaker_angle < POUR_THRESHOLD:
         if random.random() < 0.7:
             particles.append(Particle(mouth_pos.x, mouth_pos.y))
 
