@@ -88,6 +88,7 @@ cap_on_top = True
 glass_rect = glass_img.get_rect()
 glass_rect.midbottom = (SCREEN_WIDTH * 0.72, baseline_y)
 
+
 # --------------------------------
 # 잔 내부 삼각형 (액체 영역)
 # --------------------------------
@@ -173,6 +174,7 @@ def draw_liquid(surface, tri, amount):
 running = True
 mouse_dragging = False
 prev_mouse_x = None
+prev_mouse_y = None
 
 while running:
     dt = clock.tick(FPS) / 1000.0
@@ -187,10 +189,10 @@ while running:
         if shake_power < 0.01:
             shake_power = 0.0
 
-        shake_offset_x = math.sin(shake_timer * 40) * shake_power * 5
+        shake_offset_y = math.sin(shake_timer * 40) * shake_power * 5
         shaker_pos = pygame.Vector2(
-            base_shaker_pos.x + shake_offset_x,
-            base_shaker_pos.y
+            base_shaker_pos.x,
+            base_shaker_pos.y + shake_offset_y
         )
 
     # MOVING / POURING 에서는 shaker_pos를 이벤트로만 움직임
@@ -246,21 +248,28 @@ while running:
             elif event.type == pygame.MOUSEMOTION and mouse_dragging:
                 mx, my = event.pos
                 shaker_pos.x = mx
-                # y는 바닥 기준에 맞춰서 유지
-                shaker_pos.y = baseline_y - shaker_body_rect.height * 0.5
+                shaker_pos.y = my
 
         # -------------------------
         # MODE_POURING: 각도만 조절해서 붓기
         # -------------------------
         elif mode == MODE_POURING:
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_UP:
-                    shaker_angle += 2
-                elif event.key == pygame.K_DOWN:
-                    shaker_angle -= 2
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mouse_dragging = True
+                prev_mouse_y = event.pos[1]
 
-                shaker_angle = max(SHAKE_ANGLE_MIN,
-                                   min(SHAKE_ANGLE_MAX, shaker_angle))
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                mouse_dragging = False
+                prev_mouse_y = None
+
+            elif event.type == pygame.MOUSEMOTION and mouse_dragging:
+                my = event.pos[1]
+                if prev_mouse_y is not None:
+                    dy = my - prev_mouse_y      # 마우스 아래로 드래그 → 음료 붓기
+                    shaker_angle += dy * 0.4    # 감도 조절
+                    shaker_angle = max(SHAKE_ANGLE_MIN,
+                                    min(SHAKE_ANGLE_MAX, shaker_angle))
+                    prev_mouse_y = my
 
     # -----------------------------
     # 상태 업데이트 (공통)
