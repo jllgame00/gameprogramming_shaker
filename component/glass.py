@@ -2,10 +2,10 @@
 import pygame
 import random
 
-from config import GLASS_FILL_PER_PARTICLE
-from geometry import get_glass_triangle, point_in_triangle
-from obb import create_wall_obbs_from_triangle, point_in_obb
-from particles import Particle
+from component.config import GLASS_FILL_PER_PARTICLE
+from component.geometry import get_glass_triangle, point_in_triangle
+from component.obb import create_wall_obbs_from_triangle, point_in_obb
+from component.particles import Particle
 
 
 class Glass:

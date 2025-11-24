@@ -1,5 +1,5 @@
 import pygame, random
-from config import SURFACE_DROPLET_LIFE, SURFACE_DROPLET_RADIUS
+from component.config import SURFACE_DROPLET_LIFE, SURFACE_DROPLET_RADIUS
 
 class Particle:
     def __init__(self, x, y, color=(255,90,150)):

@@ -2,10 +2,10 @@
 import os
 import pygame
 
-from shaker import Shaker
-from glass import Glass
-from particles import Particle
-from config import FPS
+from component.shaker import Shaker
+from component.glass import Glass
+from component.particles import Particle
+from component.config import FPS
 
 pygame.init()
 

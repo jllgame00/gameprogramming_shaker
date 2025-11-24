@@ -3,7 +3,7 @@ import pygame
 import math
 import random
 
-from config import (
+from component.config import (
     SHAKE_THRESHOLD,
     POUR_START_ANGLE,
     POUR_MAX_ANGLE,
@@ -11,7 +11,7 @@ from config import (
     VOLUME_PER_PARTICLE,
 )
 
-from particles import Particle
+from component.particles import Particle
 
 
 class Shaker:
