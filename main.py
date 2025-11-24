@@ -90,6 +90,8 @@ glass_rect.midbottom = (SCREEN_WIDTH*0.72, baseline_y)
 # 액체 전용 서피스(잔 앞에 올릴 거임)
 liquid_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
 
+surface_droplets = []
+
 # --------------------------------
 # 잔 내부 삼각형
 # --------------------------------
@@ -152,6 +154,22 @@ spill_particles = []   # 잔이 넘쳐서 떨어지는 입자
 splash_particles = []  # 잔에 부딪혀 튕겨나가는 입자
 
 fill_amount = 0.0
+
+class SurfaceDroplet:
+    def __init__(self, x, y):
+        self.pos = pygame.Vector2(x, y)
+        self.life = random.uniform(0.3, 0.8)
+        self.radius = 3
+        self.color = (255, 120, 180)
+    
+    def update(self, dt):
+        self.life -= dt
+        self.pos.x += random.uniform(-0.3, 0.3)
+        self.pos.y += random.uniform(-0.2, 0.2)
+
+    def draw(self, surf):
+        pygame.draw.circle(surf, self.color,
+                           (int(self.pos.x), int(self.pos.y)), self.radius)
 
 # --------------------------------
 # Geometry Utils
@@ -383,12 +401,23 @@ while running:
 
         # 1) 잔 안쪽 삼각형에 들어온 경우: 속도 상관없이 "주로 채워진다"
         if inside:
-            if fill_amount < 1.0:
-                fill_amount += GLASS_FILL_PER_PARTICLE
-            else:
-                # 이미 꽉 찼으면 밖으로 흘러내리는 spill로
-                spill_particles.append(Particle(p.pos.x, p.pos.y))
+            # fill_amount를 올림
+            fill_amount += GLASS_FILL_PER_PARTICLE
+            
+            # 현재 액체 표면 y 위치 계산
+            tri_vec_tl = pygame.Vector2(a)
+            tri_vec_tr = pygame.Vector2(b)
+            tri_vec_bt = pygame.Vector2(c)
 
+            visible = max(0.0, min(1.0, fill_amount)) # 화면에 보이는 비율만
+            surface_y = tri_vec_bt.y + (tri_vec_tl.y - tri_vec_bt.y) * visible
+            # 표면 x는 대충 잔 중앙과 랜덤
+            surface_x = tri_vec_bt.x + random.uniform(-(tri_vec_tr.x - tri_vec_tl.x) * 0.25,
+                                                      (tri_vec_tr.x - tri_vec_tl.x) * 0.25)
+            
+            surface_droplets.append(SurfaceDroplet(surface_x, surface_y))
+
+            # 원래 입자는 삭제 (표면에 녹아든다는 느낌)
             particles.remove(p)
             continue
 
@@ -428,7 +457,33 @@ while running:
         sp.update()
         if sp.pos.y > SCREEN_HEIGHT + 50:
             splash_particles.remove(sp)
+    
+    # surface_droplets 업데이트
+    for sd in surface_droplets[:]:
+        sd.update(dt)
+        if sd.life <= 0:
+            surface_droplets.remove(sd)
+    
+    # overflow_amount 계산 + 림 밖으로 나가는 spill 생성
+    overflow_amount = max(0.0, fill_amount -1.0)
 
+    if overflow_amount > 0:
+        # 잔 림 좌우 위치
+        rim_left_x = tri["top_left"][0]
+        rim_right_x = tri["top_right"][0]
+        rim_y       = tri["top_left"][1]
+
+        # overflow_amount 비례해서 프레임당 여러 개 생성
+        spawn_count = min(5, int(overflow_amount * 10))
+
+        for _ in range(spawn_count):
+                x = random.choice([rim_left_x, rim_right_x]) + random.uniform(-2, 2)
+                y = rim_y + random.uniform(-2, 2)
+                spill = Particle(x, y)
+                spill.vel.y = random.uniform(1.5, 3.0)
+                spill.vel.x += random.uniform(-0.5, 0.5)
+                spill_particles.append(spill)
+                
 
     # --------------------------------
     # 렌더링
