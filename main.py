@@ -13,7 +13,7 @@ IMG_DIR = os.path.join("img")
 def load_image(name):
     path = os.path.join(IMG_DIR, name)
     img = pygame.image.load(path)
-    return img
+    return img  # convert 생략 (간단하게)
 
 # --------------------------------
 # 이미지 로드
@@ -44,7 +44,7 @@ SHAKE_THRESHOLD = 2.0   # 이 정도 이상 흔들면 이동 모드 진입
 # --------------------------------
 # 셰이커 / 잔 위치 세팅
 # --------------------------------
-# 셰이커 위치 (기본 위치)
+# 셰이커 기본 위치
 base_shaker_pos = pygame.Vector2(SCREEN_WIDTH * 0.3, SCREEN_HEIGHT * 0.55)
 shaker_pos = base_shaker_pos.copy()
 
@@ -57,7 +57,7 @@ POUR_THRESHOLD = -30  # 이 각도보다 많이 기울면 붓기 시작
 shake_power = 0.0
 shake_timer = 0.0
 
-# 셰이커 바디 원본 / 렉트
+# 셰이커 바디 정보
 shaker_body_orig = shaker_body_img
 shaker_body_rect = shaker_body_orig.get_rect(center=shaker_pos)
 
@@ -88,6 +88,8 @@ cap_on_top = True
 glass_rect = glass_img.get_rect()
 glass_rect.midbottom = (SCREEN_WIDTH * 0.72, baseline_y)
 
+# 액체를 잔 "뒤쪽"에 그리기 위한 서피스
+liquid_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
 
 # --------------------------------
 # 잔 내부 삼각형 (액체 영역)
@@ -108,14 +110,24 @@ def get_glass_triangle():
     }
 
 # --------------------------------
+# 셰이커 안 칵테일 양 / 잔 채움 관련
+# --------------------------------
+MAX_SHAKER_VOLUME = 1.0         # 셰이커 안에 있는 총 칵테일 양 (정규화)
+shaker_volume = MAX_SHAKER_VOLUME
+
+VOLUME_PER_PARTICLE = 0.004     # 입자 하나 나갈 때 셰이커에서 빠지는 양
+GLASS_FILL_PER_PARTICLE = 0.003 # 잔에 들어올 때 fill_amount에 더해지는 양
+
+# --------------------------------
 # 입자(액체) 시스템
 # --------------------------------
 class Particle:
     def __init__(self, x, y):
-        self.pos = pygame.Vector2(x, y)
-        self.vel = pygame.Vector2(random.uniform(-0.5, 0.5),
-                                  random.uniform(1.0, 2.0))
-        self.radius = 3
+        # 수도꼭지 물줄기처럼: x 살짝만 퍼지고, 수직으로 빨리 떨어짐
+        self.pos = pygame.Vector2(x + random.uniform(-2, 2), y)
+        self.vel = pygame.Vector2(random.uniform(-0.1, 0.1),
+                                  random.uniform(2.5, 3.5))
+        self.radius = 4
         self.color = (255, 90, 150)  # 코스모폴리탄 느낌
 
     def update(self):
@@ -127,8 +139,7 @@ class Particle:
                            (int(self.pos.x), int(self.pos.y)), self.radius)
 
 particles = []
-fill_amount = 0.0          # 0 ~ 1
-FILL_PER_PARTICLE = 0.006  # 한 입자당 얼마나 차는지
+fill_amount = 0.0          # 잔 안에 채워진 정도 (0~이상, 1.0 넘으면 오버플로우 상태로 간주 가능)
 
 # --------------------------------
 # 유틸 함수
@@ -149,15 +160,17 @@ def point_in_triangle(pt, a, b, c):
     return abs((A1 + A2 + A3) - A) < 0.3
 
 def draw_liquid(surface, tri, amount):
-    amount = max(0.0, min(1.0, amount))
+    # 실제 fill_amount는 1.0 이상도 갈 수 있지만,
+    # 화면에 보이는 건 0~1 사이까지만.
+    visible = max(0.0, min(1.0, amount))
 
     top_left = pygame.Vector2(tri["top_left"])
     top_right = pygame.Vector2(tri["top_right"])
     bottom = pygame.Vector2(tri["bottom"])
 
-    current_y = bottom.y + (top_left.y - bottom.y) * amount
-    left_x  = bottom.x + (top_left.x  - bottom.x) * amount
-    right_x = bottom.x + (top_right.x - bottom.x) * amount
+    current_y = bottom.y + (top_left.y - bottom.y) * visible
+    left_x  = bottom.x + (top_left.x  - bottom.x) * visible
+    right_x = bottom.x + (top_right.x - bottom.x) * visible
 
     poly = [
         (bottom.x, bottom.y),
@@ -165,7 +178,8 @@ def draw_liquid(surface, tri, amount):
         (right_x, current_y),
     ]
 
-    LIQUID_COLOR = (255, 110, 170)
+    # 반투명 액체 색상 (RGBA)
+    LIQUID_COLOR = (255, 110, 170, 170)
     pygame.draw.polygon(surface, LIQUID_COLOR, poly)
 
 # --------------------------------
@@ -176,6 +190,8 @@ mouse_dragging = False
 prev_mouse_x = None
 prev_mouse_y = None
 
+NUM_STREAM_PARTICLES = 3  # 한 프레임에 몇 개씩 떨어지는지 (물줄기 굵기)
+
 while running:
     dt = clock.tick(FPS) / 1000.0
 
@@ -183,7 +199,7 @@ while running:
     # 모드별 기본 업데이트
     # -----------------------------
     if mode == MODE_SHAKING:
-        # 셰이킹 애니메이션 (좌우 덜덜)
+        # 셰이킹 애니메이션 (위아래 덜덜)
         shake_timer += dt
         shake_power *= 0.9
         if shake_power < 0.01:
@@ -195,8 +211,7 @@ while running:
             base_shaker_pos.y + shake_offset_y
         )
 
-    # MOVING / POURING 에서는 shaker_pos를 이벤트로만 움직임
-    # (따로 처리 안 함)
+    # MOVING / POURING 에서는 shaker_pos는 이벤트에서만 변경
 
     # -----------------------------
     # 이벤트 처리
@@ -206,7 +221,7 @@ while running:
             running = False
 
         # -------------------------
-        # MODE_SHAKING: 흔들기만, 각도/위치 고정
+        # MODE_SHAKING: 흔들기만, 각도/위치는 자동 (위아래)
         # -------------------------
         if mode == MODE_SHAKING:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -219,8 +234,8 @@ while running:
                 # 마우스 떼는 순간, 충분히 흔들었으면 이동 모드로 전환
                 if shake_power >= SHAKE_THRESHOLD:
                     mode = MODE_MOVING
-                    # 셰이커 위치를 기준 위치로 고정
-                    shaker_pos = base_shaker_pos.copy()
+                    # 이동 모드 시작 기준 위치
+                    base_shaker_pos = shaker_pos.copy()
 
             elif event.type == pygame.MOUSEMOTION and mouse_dragging:
                 mx, my = event.pos
@@ -231,7 +246,7 @@ while running:
                     prev_mouse_x = mx
 
         # -------------------------
-        # MODE_MOVING: 잔 위로 위치 옮기기
+        # MODE_MOVING: 잔 위로 위치 옮기기 (마우스로 집어서 이동)
         # -------------------------
         elif mode == MODE_MOVING:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -242,16 +257,16 @@ while running:
                 # 위치 옮기기 끝 → 붓기 모드로 전환
                 mode = MODE_POURING
                 cap_on_top = False  # 캡 분리
-                # 이때 위치를 기준 위치로 사용하도록 업데이트
                 base_shaker_pos = shaker_pos.copy()
 
             elif event.type == pygame.MOUSEMOTION and mouse_dragging:
                 mx, my = event.pos
+                # 마우스 위치에 따라 셰이커 이동 (살짝 위쪽 잡고 있는 느낌 나게 y를 약간 올려도 됨)
                 shaker_pos.x = mx
                 shaker_pos.y = my
 
         # -------------------------
-        # MODE_POURING: 각도만 조절해서 붓기
+        # MODE_POURING: 각도만 조절해서 붓기 (마우스 위아래 드래그)
         # -------------------------
         elif mode == MODE_POURING:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -265,10 +280,10 @@ while running:
             elif event.type == pygame.MOUSEMOTION and mouse_dragging:
                 my = event.pos[1]
                 if prev_mouse_y is not None:
-                    dy = my - prev_mouse_y      # 마우스 아래로 드래그 → 음료 붓기
-                    shaker_angle += dy * 0.4    # 감도 조절
+                    dy = my - prev_mouse_y  # 아래로 드래그 → 더 기울어짐
+                    shaker_angle += dy * 0.4
                     shaker_angle = max(SHAKE_ANGLE_MIN,
-                                    min(SHAKE_ANGLE_MAX, shaker_angle))
+                                       min(SHAKE_ANGLE_MAX, shaker_angle))
                     prev_mouse_y = my
 
     # -----------------------------
@@ -283,10 +298,16 @@ while running:
     rotated_mouth_offset = mouth_offset.rotate(-shaker_angle)
     mouth_pos = shaker_pos + rotated_mouth_offset
 
-    # 입자 생성 (붓기 모드 + 각도 임계치)
-    if mode == MODE_POURING and shaker_angle < POUR_THRESHOLD:
-        if random.random() < 0.7:
+    # 입자 생성 (붓기 모드 + 각도 임계치 + 셰이커 잔량)
+    if (mode == MODE_POURING and
+        shaker_angle < POUR_THRESHOLD and
+        shaker_volume > 0):
+
+        for _ in range(NUM_STREAM_PARTICLES):
+            if shaker_volume <= 0:
+                break
             particles.append(Particle(mouth_pos.x, mouth_pos.y))
+            shaker_volume = max(0.0, shaker_volume - VOLUME_PER_PARTICLE)
 
     tri = get_glass_triangle()
     a = tri["top_left"]
@@ -296,24 +317,29 @@ while running:
     for p in particles[:]:
         p.update()
 
+        # 화면 아래로 너무 떨어지면 삭제
         if p.pos.y > SCREEN_HEIGHT + 50:
             particles.remove(p)
             continue
 
+        # 잔 내부에 들어오면 잔 채우기
         if point_in_triangle((p.pos.x, p.pos.y), a, b, c):
-            fill_amount += FILL_PER_PARTICLE
+            fill_amount += GLASS_FILL_PER_PARTICLE
             particles.remove(p)
-
-    fill_amount = max(0.0, min(1.0, fill_amount))
 
     # -----------------------------
     # 렌더링
     # -----------------------------
-    screen.blit(background_img, (0, 0))
+    # 액체 서피스 비우기
+    liquid_surface.fill((0, 0, 0, 0))
 
-    # 잔 + 액체
+    # 잔 안 액체 그리기 (별도 서피스에)
+    draw_liquid(liquid_surface, tri, fill_amount)
+
+    # 배경 → 액체 → 잔 순서로 그려서 "잔 안에 든" 느낌
+    screen.blit(background_img, (0, 0))
     screen.blit(glass_img, glass_rect)
-    draw_liquid(screen, tri, fill_amount)
+    screen.blit(liquid_surface, (0, 0))
 
     # 셰이커 바디
     screen.blit(rotated_body, body_rect)
@@ -332,7 +358,7 @@ while running:
         cap_rect = shaker_cap_orig.get_rect(center=cap_side_pos)
         screen.blit(shaker_cap_orig, cap_rect)
 
-    # 입자들
+    # 입자들 (앞에서 보이게)
     for p in particles:
         p.draw(screen)
 
