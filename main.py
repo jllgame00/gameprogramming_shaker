@@ -2,6 +2,8 @@ import os
 import math
 import random
 import pygame
+from obb import OBB, create_wall_obbs_from_triangle, point_in_obb
+
 
 pygame.init()
 
@@ -94,12 +96,21 @@ liquid_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
 def get_glass_triangle():
     gw, gh = glass_rect.width, glass_rect.height
 
-    # 튜닝 — 카메라에서 보이는 내부를 더 위쪽으로 올림
-    bottom = (glass_rect.centerx, glass_rect.bottom - gh * 0.55)
-    top_y  = glass_rect.top + gh * 0.28
+    # 이미지 기준:
+    # - 잔 입구: 대략 위에서 0.12~0.18h 정도
+    # - V자 바닥: 대략 위에서 0.45~0.5h 정도
+    # => top_y, bottom_y를 glass_rect.top 기준으로 잡는 게 핵심
+    top_y    = glass_rect.top + gh * 0.18   # 잔 안쪽 림 바로 아래
+    bottom_y = glass_rect.top + gh * 0.48   # V자 내부 끝나는 지점
 
-    top_left  = (glass_rect.centerx - gw*0.36, top_y)
-    top_right = (glass_rect.centerx + gw*0.36, top_y)
+    cx = glass_rect.centerx
+
+    # 내부 폭: 전체 폭의 약 0.66 정도만 사용 (외곽 라인 안쪽)
+    half_inner_w = gw * 0.33
+
+    top_left  = (cx - half_inner_w, top_y)
+    top_right = (cx + half_inner_w, top_y)
+    bottom    = (cx,              bottom_y)
 
     return {
         "top_left": top_left,
@@ -110,11 +121,11 @@ def get_glass_triangle():
 # --------------------------------
 # 용량 / 파티클 설정
 # --------------------------------
-MAX_SHAKER_VOLUME = 2.0
+MAX_SHAKER_VOLUME = 3.0          # 총량 더 크게
 shaker_volume = MAX_SHAKER_VOLUME
 
-VOLUME_PER_PARTICLE = 0.0035
-GLASS_FILL_PER_PARTICLE = 0.0025
+VOLUME_PER_PARTICLE = 0.003      # 셰이커 소모는 조금 덜
+GLASS_FILL_PER_PARTICLE = 0.004  # 잔 채우는 속도는 좀 더 눈에 보이게
 
 class Particle:
     def __init__(self, x, y):
@@ -156,6 +167,41 @@ def point_in_triangle(pt, a, b, c):
     A3 = area(*a, *b, x, y)
 
     return abs((A1 + A2 + A3) - A) < 0.3
+
+def dist_point_to_segment(px, py, ax, ay, bx, by):
+    # 점-선분 거리
+    vx, vy = bx - ax, by - ay
+    wx, wy = px - ax, py - ay
+    seg_len2 = vx*vx + vy*vy
+    if seg_len2 == 0:
+        # a == b인 경우 그냥 점 거리
+        dx, dy = px - ax, py - ay
+        return math.hypot(dx, dy)
+
+    t = (wx*vx + wy*vy) / seg_len2
+    t = max(0.0, min(1.0, t))
+    proj_x = ax + t*vx
+    proj_y = ay + t*vy
+
+    dx, dy = px - proj_x, py - proj_y
+    return math.hypot(dx, dy)
+
+def is_near_glass_side(pt, tri, margin=6):
+    """잔 내부 삼각형의 좌/우 변에 margin 픽셀 이내로 접근했는지 검사."""
+    x, y = pt
+    tl = tri["top_left"]
+    tr = tri["top_right"]
+    bt = tri["bottom"]
+
+    # 좌측 변: top_left -> bottom
+    d_left = dist_point_to_segment(x, y, tl[0], tl[1], bt[0], bt[1])
+    # 우측 변: top_right -> bottom
+    d_right = dist_point_to_segment(x, y, tr[0], tr[1], bt[0], bt[1])
+
+    return (d_left < margin) or (d_right < margin)
+
+
+
 
 def draw_liquid(surf, tri, amount):
     visible = max(0.0, min(1.0, amount))
@@ -320,6 +366,8 @@ while running:
     # --------------------------------
     tri = get_glass_triangle()
     a, b, c = tri["top_left"], tri["top_right"], tri["bottom"]
+    # 잔 왼쪽/오른쪽 벽을 OBB로 생성
+    left_obb, right_obb = create_wall_obbs_from_triangle(tri, thickness=8.0)
 
     for p in particles[:]:
         p.update()
@@ -328,29 +376,46 @@ while running:
             particles.remove(p)
             continue
 
-        if point_in_triangle((p.pos.x, p.pos.y), a, b, c):
+        inside = point_in_triangle((p.pos.x, p.pos.y), a, b, c)
+        hit_left = point_in_obb(p.pos.x, p.pos.y, left_obb)
+        hit_right = point_in_obb(p.pos.x, p.pos.y, right_obb)
+        side_hit = hit_left or hit_right
 
-            # -------- splash 판정 --------
+        # 1) 잔 안쪽 삼각형에 들어온 경우: 속도 상관없이 "주로 채워진다"
+        if inside:
+            if fill_amount < 1.0:
+                fill_amount += GLASS_FILL_PER_PARTICLE
+            else:
+                # 이미 꽉 찼으면 밖으로 흘러내리는 spill로
+                spill_particles.append(Particle(p.pos.x, p.pos.y))
+
+            particles.remove(p)
+            continue
+
+        # 2) 잔 옆면(OBB)에 맞은 경우: 여기서만 splash / spill 판정
+        if side_hit:
+            # splash 조건은 좀 더 빡세게 (속도 더 커야 튀김)
             splash_condition = (
-                p.vel.y > 4.2 or
-                num_stream >= 4
+                p.vel.y > 6.0 or       # 속도 임계 ↑
+                num_stream >= 4        # 콸콸 붓고 있을 때
             )
 
             if splash_condition:
+                # 벽에 세게 부딪혀 위로 튀는 splash
                 splash = Particle(p.pos.x, p.pos.y)
                 splash.vel.y = -random.uniform(2.0, 4.0)
                 splash.vel.x = random.uniform(-2.0, 2.0)
                 splash_particles.append(splash)
-                particles.remove(p)
-                continue
-
-            # -------- 정상 채우기 / 넘침 --------
-            if fill_amount < 1.0:
-                fill_amount += GLASS_FILL_PER_PARTICLE
             else:
-                spill_particles.append(Particle(p.pos.x, p.pos.y))
+                # 속도가 그렇게 크진 않으면, 벽을 타고 흘러내리는 spill
+                spill = Particle(p.pos.x, p.pos.y)
+                spill.vel.x += random.uniform(-0.3, 0.3)
+                spill_particles.append(spill)
 
             particles.remove(p)
+            continue
+
+
 
     #  overflow fall
     for s in spill_particles[:]:
