@@ -24,7 +24,7 @@ glass_img = load_image("glass.png")
 
 SCREEN_WIDTH, SCREEN_HEIGHT = background_img.get_size()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Seolhwa - Shaker Prototype | Component Version")
+pygame.display.set_caption("Seolhwa - Shaker Prototype")
 
 clock = pygame.time.Clock()
 
@@ -72,6 +72,12 @@ while running:
     # 4) 렌더링
     screen.blit(background_img, (0, 0))
     glass.draw(screen)
+    shaker.draw(screen)
+
+    # 5) 셰이킹 결과물 그리기
+    for p in particles:
+        p.draw(screen)
+
     shaker.draw(screen)
 
     pygame.display.flip()
