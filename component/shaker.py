@@ -122,7 +122,7 @@ class Shaker:
                 if self.prev_mouse_x is not None:
                     dx = mx - self.prev_mouse_x
 
-                    # 🔥 셰이커를 마우스를 따라 좌우로 직접 움직이게
+                    # 셰이커를 마우스를 따라 좌우로 직접 움직이게
                     self.pos.x = self.base_pos.x + dx
 
                     # 흔들어준 만큼 파워 누적
@@ -229,3 +229,22 @@ class Shaker:
         else:
             cap_rect = self.cap_orig.get_rect(center=self.cap_side_pos)
             screen.blit(self.cap_orig, cap_rect)
+
+    def is_pouring_now(self):
+        return (
+            self.mode == Shaker.MODE_POURING
+            and self.volume > 0
+            and self.angle < POUR_START_ANGLE
+        )
+
+    def get_pour_factor(self):
+        """
+        0~1: 얼마나 많이 기울였는지
+        """
+        if not self.is_pouring_now():
+            return 0.0
+
+        over = (abs(self.angle) - abs(POUR_START_ANGLE)) / \
+               (abs(POUR_MAX_ANGLE) - abs(POUR_START_ANGLE))
+        over = max(0.0, min(1.0, over))
+        return over

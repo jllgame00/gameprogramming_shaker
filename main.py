@@ -63,22 +63,26 @@ while running:
     # 1) 셰이커 상태 업데이트
     shaker.update(events, dt)
 
-    # 2) 셰이커에서 파티클 방출
-    shaker.emit_particles(particles)
+    # 2) (선택) 파티클 연출은 이제 안 써도 됨 → 지우거나 남겨도 상관없음
+    # shaker.emit_particles(particles)
 
-    # 3) 잔 업데이트 (입자 충돌, fill_amount 증가)
-    glass.update(particles, dt)
+    # 3) 잔 업데이트: 라인 기반 리퀴드
+    is_pouring = shaker.is_pouring_now()
+    mouth_pos = shaker.get_mouth_pos()
+    pour_factor = shaker.get_pour_factor()
+    glass.update_stream(dt, is_pouring, mouth_pos, pour_factor)
 
     # 4) 렌더링
     screen.blit(background_img, (0, 0))
     glass.draw(screen)
 
-    # 물줄기 입자
-    for p in particles:
-        p.draw(screen)
+    # (파티클 시각효과를 남기고 싶으면 여기서 그려도 됨)
+    # for p in particles:
+    #     p.draw(screen)
 
     shaker.draw(screen)
 
     pygame.display.flip()
+
 
 pygame.quit()
