@@ -333,5 +333,5 @@ class Glass:
         # 최종 폴리곤: 윗면(좌→우) + 바닥(U자, 우→좌)
         poly = top_curve + list(reversed(bottom_curve))
 
-        LIQUID_COLOR = (255, 110, 170, 200)
+        LIQUID_COLOR = (255, 200, 220, 230)
         pygame.draw.polygon(surface, LIQUID_COLOR, poly)
