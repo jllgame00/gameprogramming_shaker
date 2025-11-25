@@ -15,10 +15,10 @@ from component.geometry import get_glass_triangle
 
 class Glass:
     """
-    라인 기반 리퀴드 버전:
-    - 파티클 대신, 셰이커 입구 위치 + 붓는 세기 + 사용된 부피로
-      물줄기(곡선 선분들) + 잔 내부 채움(fill_amount)을 처리.
-    - 히트박스 = 잔 안쪽 벽 2개(대각선) + 바닥 점.
+    - 셰이커 입구 위치 + 붓는 세기 + 사용된 부피로
+      물줄기(곡선 polyline) + 잔 내부 채움(fill_amount)을 처리.
+    - 물줄기는 잔 바닥까지 보여도 괜찮다는 전제로, 표면 클리핑 없음.
+    - 히트박스 = 잔 안쪽 벽 2개(대각선) + 바닥점(조금 위로 올림).
     """
 
     def __init__(self, glass_img, screen_width, screen_height, baseline_y):
@@ -27,11 +27,16 @@ class Glass:
         # 셰이커 바닥 y에 맞춰 midbottom 정렬
         self.rect.midbottom = (screen_width * 0.72, baseline_y)
 
-        # 내부 삼각형
+        # 내부 삼각형 (위 두 점, 아래 한 점)
         self.tri = get_glass_triangle(self.rect)
         self.tl = pygame.Vector2(self.tri["top_left"])
         self.tr = pygame.Vector2(self.tri["top_right"])
-        self.b  = pygame.Vector2(self.tri["bottom"])
+        self.b = pygame.Vector2(self.tri["bottom"])
+
+        # 잔 바닥 hitbox를 약간 위로 올림 (스프라이트 뾰족한 끝은 제외)
+        BOTTOM_RAISE = 8
+        self.b.y -= BOTTOM_RAISE
+        self.tri["bottom"] = (self.b.x, self.b.y)
 
         # 현재 잔 채움 정도 (0.0 ~ 1.0)
         self.fill_amount = 0.0
@@ -47,6 +52,12 @@ class Glass:
         # 시간값 (wiggle용)
         self.stream_time = 0.0
 
+        # 윗면 곡률 파라미터
+        self.base_curve_strength = 6.0
+
+        # 최근 붓기 세기(두께 계산용)
+        self.last_pour_factor = 0.0
+
     # -------------------------------------------------
     # 외부에서 매 프레임 호출:
     #   dt          : delta time
@@ -59,6 +70,7 @@ class Glass:
                       pour_factor: float, used_volume: float):
         # 시간 업데이트 (wiggle용)
         self.stream_time += dt
+        self.last_pour_factor = pour_factor
 
         # 직전 프레임 물줄기 초기화
         self.stream_points = []
@@ -67,33 +79,32 @@ class Glass:
         if not is_pouring or used_volume <= 0.0:
             return
 
-        # 1) mouth_pos에서 수직 아래로 레이 쏨
+        # 1) 입구에서 수직 아래로 레이
         ray_start = pygame.Vector2(mouth_pos)
         ray_dir = pygame.Vector2(0, 1)  # 아래 방향
 
         # 2) 잔 왼/오 벽 (tl~b, tr~b)과 교점 찾기
         hit_point, hit_side = self._ray_hit_wall(ray_start, ray_dir)
 
-        # 유리컵을 안 맞고 그냥 떨어진 경우: 공중 물줄기만
+        # 컵을 안 맞고 그냥 떨어지는 경우
         if hit_point is None:
-            self._build_falling_only_stream(ray_start, ray_dir, pour_factor)
+            self._build_falling_only_stream(ray_start, pour_factor)
         else:
-            # 유리 벽 맞으면:
-            # (1) falling 구간: mouth → hit
-            # (2) sliding 구간: hit → b (벽 따라 아래로)
-            self._build_falling_and_sliding_stream(ray_start, hit_point,
-                                                   hit_side, pour_factor)
+            # 컵 벽 맞으면: falling + sliding (바닥까지)
+            self._build_falling_and_sliding_stream(
+                ray_start, hit_point, hit_side, pour_factor
+            )
 
-        # 3) used_volume 기반으로 잔 채우기
+        # 3) used_volume 기반으로 잔 채우기 (양 일치)
         delta_fill = used_volume / GLASS_CAPACITY
         self.fill_amount += delta_fill
         self.fill_amount = max(0.0, min(1.0, self.fill_amount))
 
     # -------------------------------------------------
-    # falling-only stream: 컵 안 맞고 그냥 떨어지는 경우
+    # 컵 안 안 맞고 그냥 떨어지는 경우
     # -------------------------------------------------
-    def _build_falling_only_stream(self, ray_start, ray_dir, pour_factor):
-        length = 200  # 대충 아래로 200px 정도
+    def _build_falling_only_stream(self, ray_start, pour_factor):
+        length = 150  # 최대 길이
         num_samples = 8
 
         wiggle_amp = STREAM_WIGGLE_AMP + STREAM_WIGGLE_AMP_EXTRA * pour_factor
@@ -101,9 +112,8 @@ class Glass:
         points = []
         for i in range(num_samples + 1):
             t = i / num_samples
-            base = ray_start + ray_dir * (length * t)
+            base = ray_start + pygame.Vector2(0, length * t)
 
-            # x방향으로 sinusoidal wiggle
             phase = self.stream_time * STREAM_WIGGLE_FREQ + t * math.pi * 2.0
             offset_x = math.sin(phase) * wiggle_amp
 
@@ -113,11 +123,14 @@ class Glass:
         self.stream_points = points
 
     # -------------------------------------------------
-    # falling + sliding stream: 컵 벽 맞고 흐르는 경우
+    # 컵 벽 맞고 흐르는 경우: falling + sliding (바닥까지 허용)
     # -------------------------------------------------
     def _build_falling_and_sliding_stream(self, ray_start, hit_point, hit_side,
                                           pour_factor):
-        # falling 구간 길이
+        # 현재 잔 채움 정도
+        f = max(0.0, min(1.0, self.fill_amount))
+
+        # falling 구간 설정
         num_fall_samples = 6
         wiggle_amp = STREAM_WIGGLE_AMP + STREAM_WIGGLE_AMP_EXTRA * pour_factor
 
@@ -134,25 +147,41 @@ class Glass:
             p = pygame.Vector2(base.x + offset_x, base.y)
             points.append((p.x, p.y))
 
-        # 2) sliding: hit_point → b (해당 벽 쪽)
+        # ---------------------------
+        # 2) sliding: hit_point → "현재 수면이 벽과 만나는 지점"까지
+        # ---------------------------
+        # 수면이 왼/오 벽과 만나는 지점
+        left_surface  = self.b.lerp(self.tl, f)
+        right_surface = self.b.lerp(self.tr, f)
+
         if hit_side == "left":
             wall_start = self.tl
-            wall_end = self.b
+            surface_target = left_surface
         else:
             wall_start = self.tr
-            wall_end = self.b
+            surface_target = right_surface
 
-        # hit_point 에서 시작해서 wall_end까지
-        num_slide_samples = 6
-        wall_dir = (wall_end - wall_start)
-        # 벽에 수직인 방향(흘러내리면서 약간 안팎으로 흔들리게)
+        # 만약 이미 수면이 hit_point보다 위에 있으면
+        # → 벽 타고 내려갈 구간이 없으니 바로 수면 근처로만 연결
+        # (시각적으로는 거의 바로 표면에 합류하는 느낌)
+        if surface_target.y <= hit_point.y:
+            # 그냥 hit_point에서 surface_target까지 짧게만 lerp
+            wall_end = surface_target
+        else:
+            # 수면이 더 아래에 있으면, 그 지점까지 슬라이딩
+            wall_end = surface_target
+
+        # 벽 방향 (normal 계산용)
+        wall_dir = (self.b - wall_start)
         if wall_dir.length_squared() > 0:
             normal = pygame.Vector2(-wall_dir.y, wall_dir.x).normalize()
         else:
             normal = pygame.Vector2(1, 0)
 
-        slide_amp = wiggle_amp * 0.5  # 벽 타고 흐를 땐 약간 적게
+        num_slide_samples = 6
+        slide_amp = wiggle_amp * 0.5  # 벽 타고 흐를 땐 더 얌전하게
 
+        # hit_point → wall_end (보통 수면 근처)까지
         for i in range(1, num_slide_samples + 1):
             t = i / num_slide_samples
             base = hit_point.lerp(wall_end, t)
@@ -164,6 +193,7 @@ class Glass:
             points.append((p.x, p.y))
 
         self.stream_points = points
+
 
     # -------------------------------------------------
     # 레이(입구→아래)가 잔 벽과 어디서 만나는지 계산
@@ -219,16 +249,13 @@ class Glass:
         # 잔 내부 채워진 액체
         self._draw_liquid_polygon(self.liquid_surface)
 
-        # 물줄기 라인 (곡선 polyline)
+        # --- 물줄기 라인 (곡선 polyline) ---
         if len(self.stream_points) >= 2:
-            # 기울일수록 더 두꺼운 물줄기
-            # 여기서는 wiggle에서 쓰는 pour_factor를 알 수 없으니까
-            # 대략 fill_amount 기반으로 살짝 스케일해도 되고,
-            # 또는 width는 Glass에 멤버로 저장해도 됨.
-            # 간단하게: 중간 정도 두께 고정 + 나중에 필요하면 조정
-            # → 대신 width 계산을 update_stream 안에서 하도록 바꾸는 게 더 깔끔한데
-            # 지금은 BASE + EXTRA * 현재 채움 정도로 대충 감성 조정
-            width = int(STREAM_BASE_WIDTH + STREAM_EXTRA_WIDTH * 0.5)
+            # 기울일수록 조금 더 두꺼워지게
+            f = max(0.0, min(1.0, self.last_pour_factor))
+            width = int(
+                STREAM_BASE_WIDTH + STREAM_EXTRA_WIDTH * f
+            )
 
             pygame.draw.lines(
                 self.liquid_surface,
@@ -243,7 +270,7 @@ class Glass:
         screen.blit(self.liquid_surface, (0, 0))
 
     # -------------------------------------------------
-    # 내부: 단순 삼각형 리퀴드 렌더
+    # 내부: 곡선 윗면 + 라운드 바닥 리퀴드 렌더
     # -------------------------------------------------
     def _draw_liquid_polygon(self, surface: pygame.Surface):
         f = max(0.0, min(1.0, self.fill_amount))
@@ -252,16 +279,59 @@ class Glass:
 
         tl = self.tl
         tr = self.tr
-        b  = self.b
+        b = self.b
 
-        left_pt  = b.lerp(tl, f)
-        right_pt = b.lerp(tr, f)
+        # ----- 곡선 윗면 -----
+        NUM_TOP_SAMPLES = 10
+        left_base = b.lerp(tl, f)
+        right_base = b.lerp(tr, f)
 
-        poly = [
-            (left_pt.x,  left_pt.y),
-            (right_pt.x, right_pt.y),
-            (b.x,        b.y),
-        ]
+        # 곡률 세기
+        curve_strength = self.base_curve_strength * (1.0 - 0.6 * f)
+        rim_y = min(tl.y, tr.y)
+
+        top_curve = []
+        for i in range(NUM_TOP_SAMPLES + 1):
+            t = i / NUM_TOP_SAMPLES
+            base_x = left_base.x + (right_base.x - left_base.x) * t
+            base_y = left_base.y + (right_base.y - left_base.y) * t
+
+            bulge = math.sin(t * math.pi) * curve_strength
+            y = base_y + bulge
+            if y < rim_y:
+                y = rim_y
+
+            top_curve.append((base_x, y))
+
+        # ----- 라운드 바닥 -----
+        bottom_fill = min(f, 0.30)
+
+        left_bottom_base = b.lerp(tl, bottom_fill)
+        right_bottom_base = b.lerp(tr, bottom_fill)
+
+        ROUND_STRENGTH = 2.0  # 네가 골라준 값
+        control = pygame.Vector2(b.x, b.y - ROUND_STRENGTH)
+
+        bottom_curve = []
+        NUM_BOTTOM_SAMPLES = 12
+        for i in range(NUM_BOTTOM_SAMPLES + 1):
+            u = i / NUM_BOTTOM_SAMPLES
+            one_u = 1.0 - u
+
+            bx = (one_u * one_u) * left_bottom_base.x \
+                 + 2.0 * one_u * u * control.x \
+                 + (u * u) * right_bottom_base.x
+            by = (one_u * one_u) * left_bottom_base.y \
+                 + 2.0 * one_u * u * control.y \
+                 + (u * u) * right_bottom_base.y
+
+            if by > b.y:
+                by = b.y
+
+            bottom_curve.append((bx, by))
+
+        # 최종 폴리곤: 윗면(좌→우) + 바닥(U자, 우→좌)
+        poly = top_curve + list(reversed(bottom_curve))
 
         LIQUID_COLOR = (255, 110, 170, 200)
         pygame.draw.polygon(surface, LIQUID_COLOR, poly)
