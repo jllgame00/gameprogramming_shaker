@@ -59,26 +59,17 @@ while running:
     for e in events:
         if e.type == pygame.QUIT:
             running = False
+        elif e.type == pygame.KEYDOWN:
+            if e.key == pygame.K_UP:
+                glass.fill_amount += 0.05
+            elif e.key == pygame.K_DOWN:
+                glass.fill_amount -= 0.05
 
-    # 1) 셰이커 상태 업데이트
-    shaker.update(events, dt)
+    glass.fill_amount = max(0.0, min(1.0, glass.fill_amount))
 
-    # 2) 셰이커에서 파티클 방출
-    shaker.emit_particles(particles)
-
-    # 3) 잔 업데이트 (입자 충돌, fill_amount 증가, spill/splash)
-    glass.update(particles, dt)
-
-    # 4) 렌더링
     screen.blit(background_img, (0, 0))
     glass.draw(screen)
-    shaker.draw(screen)
-
-    # 5) 셰이킹 결과물 그리기
-    for p in particles:
-        p.draw(screen)
-
-    shaker.draw(screen)
+    shaker.draw(screen)  # 있어도 되고, 없어도 되고
 
     pygame.display.flip()
 

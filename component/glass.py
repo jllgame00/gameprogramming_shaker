@@ -1,6 +1,7 @@
 # glass.py
 import pygame
 import random
+import math
 
 from component.config import GLASS_FILL_PER_PARTICLE
 from component.geometry import get_glass_triangle, point_in_triangle
@@ -90,41 +91,71 @@ class Glass:
     # 렌더: 잔 안 액체 + 파티클
     # -------------------------------------------------
     def draw(self, screen):
-        # 액체 surface 초기화
+        # 액체 레이어 초기화
         self.liquid_surface.fill((0, 0, 0, 0))
 
-        # 액체 다각형 그리기
+        # 곡선 리퀴드 폴리곤 그리기
         self._draw_liquid_polygon(self.liquid_surface)
 
-        # 잔 → 액체 → spill/splash 순으로 렌더
+        # 잔 → 액체 순으로 렌더
         screen.blit(self.img, self.rect)
         screen.blit(self.liquid_surface, (0, 0))
 
-        for sp in self.spill_particles:
-            sp.draw(screen)
-        for sp in self.splash_particles:
-            sp.draw(screen)
 
     # -------------------------------------------------
     # 내부: 액체 삼각형 렌더
     # -------------------------------------------------
-    def _draw_liquid_polygon(self, surface):
-        # 화면에 보이는 부분은 0~1 사이로 클램프
-        visible = max(0.0, min(1.0, self.fill_amount))
+    def _draw_liquid_polygon(self, surface: pygame.Surface):
+        """
+        곡선 리퀴드 폴리곤을 self.fill_amount에 맞게 그린다.
+        surface: 보통 self.liquid_surface 를 넣어서 사용.
+        """
+        poly = self._build_liquid_polygon()
+        if not poly:
+            return
 
-        top_left = pygame.Vector2(self.tri["top_left"])
-        top_right = pygame.Vector2(self.tri["top_right"])
-        bottom = pygame.Vector2(self.tri["bottom"])
-
-        current_y = bottom.y + (top_left.y - bottom.y) * visible
-        left_x  = bottom.x + (top_left.x  - bottom.x) * visible
-        right_x = bottom.x + (top_right.x - bottom.x) * visible
-
-        poly = [
-            (bottom.x, bottom.y),
-            (left_x, current_y),
-            (right_x, current_y),
-        ]
-
-        LIQUID_COLOR = (255, 110, 170, 200)  # 약간 투명한 칵테일
+        LIQUID_COLOR = (255, 110, 170, 200)  # 살짝 투명한 코스모폴리탄 느낌
         pygame.draw.polygon(surface, LIQUID_COLOR, poly)
+
+
+    def _build_liquid_polygon(self):
+        """
+        self.fill_amount (0.0 ~ 1.0)를 기반으로
+        잔 안에 들어갈 '곡선 표면' 리퀴드 폴리곤을 계산해서 리스트로 반환.
+        """
+        f = max(0.0, min(1.0, self.fill_amount))
+        if f <= 0.0:
+            return []
+
+        tl = pygame.Vector2(self.tri["top_left"])
+        tr = pygame.Vector2(self.tri["top_right"])
+        b  = pygame.Vector2(self.tri["bottom"])
+
+        # bottom(0.0) -> top(1.0) 방향으로 선형 보간
+        # 왼쪽/오른쪽 벽에서 현재 수위에 해당하는 점
+        left_pt  = b.lerp(tl, f)
+        right_pt = b.lerp(tr, f)
+
+        # 곡선 표면을 만들 샘플 포인트 개수
+        NUM_SAMPLES = 6
+        curve_points = []
+
+        for i in range(NUM_SAMPLES + 1):
+            u = i / NUM_SAMPLES  # 0.0 ~ 1.0
+
+            # x는 좌→우 선형 보간
+            x = left_pt.x + (right_pt.x - left_pt.x) * u
+
+            # y는 기본 수위 + 곡률 적용
+            base_y = left_pt.y + (right_pt.y - left_pt.y) * u
+
+            # 가운데가 살짝 볼록해지도록 sin 곡선 사용
+            bulge = math.sin(u * math.pi)  # 0~1~0
+            CURVE_STRENGTH = 4.0  # 곡률 세기(픽셀 단위)
+            y = base_y - bulge * CURVE_STRENGTH
+
+            curve_points.append((x, y))
+
+        # 최종 폴리곤: bottom에서 곡선 표면을 감싸는 팬 형태
+        poly = [(b.x, b.y)] + curve_points
+        return poly
