@@ -8,7 +8,9 @@ from component.config import (
     POUR_MAX_ANGLE,
     MAX_SHAKER_VOLUME,
     VOLUME_PER_PARTICLE,
+    POUR_RATE,
 )
+
 from component.particles import Particle
 
 
@@ -248,3 +250,45 @@ class Shaker:
                (abs(POUR_MAX_ANGLE) - abs(POUR_START_ANGLE))
         over = max(0.0, min(1.0, over))
         return over
+
+    def is_pouring_now(self):
+        return (
+            self.mode == Shaker.MODE_POURING
+            and self.volume > 0
+            and self.angle < POUR_START_ANGLE
+        )
+
+    def get_pour_factor(self):
+        """
+        0~1: 얼마나 많이 기울였는지 (기울수록 1에 가까워짐)
+        """
+        if not self.is_pouring_now():
+            return 0.0
+
+        over = (abs(self.angle) - abs(POUR_START_ANGLE)) / \
+               (abs(POUR_MAX_ANGLE) - abs(POUR_START_ANGLE))
+        return max(0.0, min(1.0, over))
+
+    def update_volume(self, dt: float, pour_factor: float) -> float:
+        """
+        dt 동안 pour_factor 세기로 부었을 때
+        실제로 셰이커에서 빠져나간 양을 계산하고,
+        그만큼 self.volume에서 빼고,
+        빠진 양(used_volume)을 반환.
+        """
+        if not self.is_pouring_now():
+            return 0.0
+
+        if pour_factor <= 0.0:
+            return 0.0
+
+        # 이 시간동안 붓고 싶은 양
+        desired = pour_factor * POUR_RATE * dt
+
+        if desired <= 0.0:
+            return 0.0
+
+        # 남은 양보다 많이 붓지는 못함
+        used = min(desired, self.volume)
+        self.volume -= used
+        return used
