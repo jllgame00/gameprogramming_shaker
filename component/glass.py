@@ -239,6 +239,50 @@ class Glass:
             return hit_point, t
         return None
 
+    def _draw_stream_soft(self, surface: pygame.Surface):
+        """
+        self.stream_points를 이용해서 soft edge 물줄기 렌더.
+        중심은 또렷한 얇은 라인, 주변은 두꺼운 흐릿한 halo.
+        """
+        if len(self.stream_points) < 2:
+            return
+
+        # 기울임 정도에 따른 두께
+        f = max(0.0, min(1.0, self.last_pour_factor))
+        base_width = int(STREAM_BASE_WIDTH + STREAM_EXTRA_WIDTH * f)
+
+        # 기본 색 (잔 리퀴드 색이랑 맞춰둔 듯해서 그대로 사용)
+        r, g, b, a = (255, 200, 220, 230)
+
+        # 1) 중심 라인: 제일 얇고 또렷하게 (AA 사용)
+        core_color = (r, g, b, a)
+        pygame.draw.lines(
+            surface,
+            core_color,
+            False,
+            self.stream_points,
+            max(1, base_width - 1)
+        )
+
+
+        # 2) 바깥 halo 레이어들: 두껍고, 알파 낮게
+        #    base_width 기준으로 안쪽/바깥 쪽 두 겹 정도만 깔아주자.
+        halo_settings = [
+            (max(2, base_width),       int(a * 0.45)),  # 메인 두께
+            (max(4, base_width + 2),   int(a * 0.25)),  # 더 두껍고 더 투명
+        ]
+
+        for width, alpha in halo_settings:
+            halo_color = (r, g, b, alpha)
+            pygame.draw.lines(
+                surface,
+                halo_color,
+                False,
+                self.stream_points,
+                width
+            )
+
+
     # -------------------------------------------------
     # 렌더
     # -------------------------------------------------
@@ -251,23 +295,14 @@ class Glass:
 
         # --- 물줄기 라인 (곡선 polyline) ---
         if len(self.stream_points) >= 2:
-            # 기울일수록 조금 더 두꺼워지게
-            f = max(0.0, min(1.0, self.last_pour_factor))
-            width = int(
-                STREAM_BASE_WIDTH + STREAM_EXTRA_WIDTH * f
-            )
-
-            pygame.draw.lines(
-                self.liquid_surface,
-                (255, 200, 220, 230),
-                False,
-                self.stream_points,
-                width
-            )
+            # 예전: pygame.draw.lines(...) 한 방
+            # 이제: soft edge 전용 함수 호출
+            self._draw_stream_soft(self.liquid_surface)
 
         # 잔 → 액체+물줄기 순으로 렌더
         screen.blit(self.img, self.rect)
         screen.blit(self.liquid_surface, (0, 0))
+
 
     # -------------------------------------------------
     # 내부: 곡선 윗면 + 라운드 바닥 리퀴드 렌더

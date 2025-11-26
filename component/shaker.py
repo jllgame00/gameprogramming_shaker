@@ -1,18 +1,13 @@
 # component/shaker.py
 import pygame
 import math
-
 from component.config import (
     SHAKE_THRESHOLD,
     POUR_START_ANGLE,
     POUR_MAX_ANGLE,
     MAX_SHAKER_VOLUME,
-    VOLUME_PER_PARTICLE,
     POUR_RATE,
 )
-
-from component.particles import Particle
-
 
 class Shaker:
     MODE_SHAKING = 0   # 제자리에서 흔들기
@@ -178,37 +173,6 @@ class Shaker:
                     self.angle = max(POUR_MAX_ANGLE, min(30.0, self.angle))
 
     # -------------------------------------------------
-    # 파티클 방출
-    # -------------------------------------------------
-    def emit_particles(self, particles_list):
-        """
-        현재 각도/볼륨/모드에 따라 물방울 파티클 생성.
-        """
-        if self.mode != Shaker.MODE_POURING:
-            return
-        if self.volume <= 0:
-            return
-        if self.angle > POUR_START_ANGLE:
-            return  # 아직 덜 기울어짐
-
-        # 얼마나 많이 기울였는지 비율 0~1
-        over = (abs(self.angle) - abs(POUR_START_ANGLE)) / \
-               (abs(POUR_MAX_ANGLE) - abs(POUR_START_ANGLE))
-        over = max(0.0, min(1.0, over))
-
-        base_stream = 1
-        extra_stream = int(3 * over)
-        num_stream = base_stream + extra_stream
-
-        mouth_pos = self.get_mouth_pos()
-
-        for _ in range(num_stream):
-            if self.volume <= 0:
-                break
-            particles_list.append(Particle(mouth_pos.x, mouth_pos.y))
-            self.volume = max(0.0, self.volume - VOLUME_PER_PARTICLE)
-
-    # -------------------------------------------------
     # 헬퍼 / 렌더
     # -------------------------------------------------
     def get_mouth_pos(self) -> pygame.Vector2:
@@ -231,25 +195,6 @@ class Shaker:
         else:
             cap_rect = self.cap_orig.get_rect(center=self.cap_side_pos)
             screen.blit(self.cap_orig, cap_rect)
-
-    def is_pouring_now(self):
-        return (
-            self.mode == Shaker.MODE_POURING
-            and self.volume > 0
-            and self.angle < POUR_START_ANGLE
-        )
-
-    def get_pour_factor(self):
-        """
-        0~1: 얼마나 많이 기울였는지
-        """
-        if not self.is_pouring_now():
-            return 0.0
-
-        over = (abs(self.angle) - abs(POUR_START_ANGLE)) / \
-               (abs(POUR_MAX_ANGLE) - abs(POUR_START_ANGLE))
-        over = max(0.0, min(1.0, over))
-        return over
 
     def is_pouring_now(self):
         return (

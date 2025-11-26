@@ -4,7 +4,6 @@ import pygame
 
 from component.shaker import Shaker
 from component.glass import Glass
-from component.particles import Particle
 from component.config import FPS
 
 pygame.init()
@@ -19,7 +18,7 @@ def load_image(name):
 
 background_img = load_image("background.png")
 shaker_body_img = load_image("shaker_body.png")
-shaker_cap_img = load_image("shaker_cap.png")
+shaker_cap_img = load_image("shaker_cap.png")   
 glass_img = load_image("glass.png")
 
 SCREEN_WIDTH, SCREEN_HEIGHT = background_img.get_size()
