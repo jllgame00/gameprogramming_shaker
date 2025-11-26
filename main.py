@@ -8,9 +8,7 @@ from component.config import FPS
 
 pygame.init()
 
-# -------------------------------
 # 경로 / 이미지 로드
-# -------------------------------
 IMG_DIR = os.path.join("img")
 
 def load_image(name):
@@ -27,9 +25,7 @@ pygame.display.set_caption("Seolhwa - Shaker Prototype")
 
 clock = pygame.time.Clock()
 
-# -------------------------------
 # 셰이커 / 잔 초기화
-# -------------------------------
 # baseline_y = 셰이커 바닥 높이를 기준으로 잔 위치 맞춤
 temp_rect = shaker_body_img.get_rect()
 baseline_y = SCREEN_HEIGHT * 0.55 + (temp_rect.height * 0.5)
@@ -46,9 +42,7 @@ glass = Glass(glass_img,
 
 particles = []   # 스트림 입자 리스트
 
-# -------------------------------
 # 게임 루프
-# -------------------------------
 running = True
 
 while running:

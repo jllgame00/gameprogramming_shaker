@@ -23,24 +23,3 @@ def get_glass_triangle(glass_rect: pygame.Rect):
         "top_right": top_right,
         "bottom": bottom,
     }
-
-
-def point_in_triangle(pt, a, b, c):
-    """
-    2D point가 삼각형 안에 있는지 여부 (면적 기반).
-    """
-    (x, y) = pt
-
-    def area(x1, y1, x2, y2, x3, y3):
-        return abs(
-            (x1 * (y2 - y3) +
-             x2 * (y3 - y1) +
-             x3 * (y1 - y2)) / 2.0
-        )
-
-    A = area(*a, *b, *c)
-    A1 = area(x, y, *b, *c)
-    A2 = area(*a, x, y, *c)
-    A3 = area(*a, *b, x, y)
-
-    return abs((A1 + A2 + A3) - A) < 0.3
