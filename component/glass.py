@@ -46,14 +46,7 @@ class Glass:
         self.base_curve_strength = 6.0
         self.last_pour_factor = 0.0
 
-    def update_stream(
-        self,
-        dt: float,
-        is_pouring: bool,
-        mouth_pos: pygame.Vector2,
-        pour_factor: float,
-        used_volume: float,
-    ):
+    def update_stream(self, dt, is_pouring, mouth_pos, pour_factor, used_volume):
         """
         dt, 붓기 상태, 셰이커 입구 위치, 기울기, 사용된 부피를 받아
         물줄기 polyline과 잔 내부 fill_amount를 갱신.
@@ -109,13 +102,7 @@ class Glass:
 
         self.stream_points = points
 
-    def _build_falling_and_sliding_stream(
-        self,
-        ray_start: pygame.Vector2,
-        hit_point: pygame.Vector2,
-        hit_side: str,
-        pour_factor: float,
-    ):
+    def _build_falling_and_sliding_stream(self, ray_start, hit_point, hit_side, pour_factor,):
         f = max(0.0, min(1.0, self.fill_amount))
 
         num_fall_samples = 6
@@ -168,7 +155,7 @@ class Glass:
         self.stream_points = points
 
     # -------- 레이 vs 잔 벽 충돌 --------
-    def _ray_hit_wall(self, ray_start: pygame.Vector2, ray_dir: pygame.Vector2):
+    def _ray_hit_wall(self, ray_start, ray_dir):
         hit_candidates = []
 
         left_hit = self._segment_intersection(ray_start, ray_dir, self.tl, self.b)
@@ -207,7 +194,7 @@ class Glass:
             return hit_point, t
         return None
 
-    def _draw_stream(self, surface: pygame.Surface):
+    def _draw_stream(self, surface):
         if len(self.stream_points) < 2:
             return
 
@@ -215,16 +202,10 @@ class Glass:
         width = int(STREAM_BASE_WIDTH + STREAM_EXTRA_WIDTH * f)
         color = (255, 200, 220, 230)
 
-        pygame.draw.lines(
-            surface,
-            color,
-            False,
-            self.stream_points,
-            width,
-        )
+        pygame.draw.lines(surface, color, False,self.stream_points,width,)
 
     # -------- 렌더 --------
-    def draw(self, screen: pygame.Surface):
+    def draw(self, screen):
         self.liquid_surface.fill((0, 0, 0, 0))
 
         # 물줄기 → 잔 내부 리퀴드 순서
@@ -237,7 +218,7 @@ class Glass:
         screen.blit(self.liquid_surface, (0, 0))
 
     # -------- 잔 내부 리퀴드 폴리곤 --------
-    def _draw_liquid_polygon(self, surface: pygame.Surface):
+    def _draw_liquid_polygon(self, surface):
         f = max(0.0, min(1.0, self.fill_amount))
         if f <= 0.0:
             return

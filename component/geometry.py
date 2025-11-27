@@ -1,7 +1,7 @@
 # component/geometry.py
 import pygame
 
-def get_glass_triangle(glass_rect: pygame.Rect):
+def get_glass_triangle(glass_rect):
     """
     잔 이미지(rect) 기준으로 '액체가 차는 내부'를 이등변 삼각형으로 정의.
     위쪽은 림보다 살짝 아래, 아래쪽은 스템 시작 직전 정도.

@@ -57,7 +57,7 @@ class Shaker:
         self.rotated_body = self.body_orig
 
     # -------- 업데이트 --------
-    def update(self, events, dt: float):
+    def update(self, events, dt):
         if self.mode == Shaker.MODE_SHAKING:
             self._update_shaking(events, dt)
         elif self.mode == Shaker.MODE_MOVING:
@@ -71,7 +71,7 @@ class Shaker:
         self.body_rect = self.rotated_body.get_rect(center=self.pos)
 
     # SHAKE 모드
-    def _update_shaking(self, events, dt: float):
+    def _update_shaking(self, events, dt):
         self.shake_timer += dt
         self.shake_power *= 0.90
         if self.shake_power < 0.01:
@@ -109,7 +109,7 @@ class Shaker:
         self.angle = math.sin(self.shake_timer * 25) * self.shake_power * 2
 
     # MOVING 모드
-    def _update_moving(self, events, dt: float):
+    def _update_moving(self, events, dt):
         for e in events:
             if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
                 self.mouse_dragging = True
@@ -125,7 +125,7 @@ class Shaker:
                 self.pos.y = my
 
     # POURING 모드
-    def _update_pouring(self, events, dt: float):
+    def _update_pouring(self, events, dt):
         for e in events:
             if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
                 self.mouse_dragging = True
@@ -144,11 +144,11 @@ class Shaker:
                     self.angle = max(POUR_MAX_ANGLE, min(30.0, self.angle))
 
     # -------- 헬퍼 / 렌더 --------
-    def get_mouth_pos(self) -> pygame.Vector2:
+    def get_mouth_pos(self):
         offset = self.mouth_offset.rotate(-self.angle)
         return self.pos + offset
 
-    def draw(self, screen: pygame.Surface):
+    def draw(self, screen):
         screen.blit(self.rotated_body, self.body_rect)
 
         if self.cap_on_top:
@@ -164,7 +164,7 @@ class Shaker:
             screen.blit(self.cap_orig, cap_rect)
 
     # -------- 볼륨/붓기 --------
-    def is_pouring_now(self) -> bool:
+    def is_pouring_now(self):
         return (
             self.mode == Shaker.MODE_POURING
             and self.volume > 0
@@ -178,11 +178,10 @@ class Shaker:
         if not self.is_pouring_now():
             return 0.0
 
-        over = (abs(self.angle) - abs(POUR_START_ANGLE)) / \
-               (abs(POUR_MAX_ANGLE) - abs(POUR_START_ANGLE))
+        over = (abs(self.angle) - abs(POUR_START_ANGLE)) / (abs(POUR_MAX_ANGLE) - abs(POUR_START_ANGLE))
         return max(0.0, min(1.0, over))
 
-    def update_volume(self, dt: float, pour_factor: float) -> float:
+    def update_volume(self, dt, pour_factor):
         """
         dt 동안 붓기 세기(pour_factor)에 따라 실제로 빠져나간 양을 반환.
         """
