@@ -73,18 +73,24 @@ class Glass:
         hit_point, hit_side = self._ray_hit_wall(ray_start, ray_dir)
 
         if hit_point is None:
-            self._build_falling_only_stream(ray_start, pour_factor)
+            # 잔 안에 안 맞음 → 바닥으로 그냥 떨어짐
+            self._build_stream(ray_start, pour_factor)
+            hit_glass = False
         else:
+            # 잔 안쪽 벽 맞음 → 유입
             self._build_falling_and_sliding_stream(
                 ray_start, hit_point, hit_side, pour_factor
             )
+            hit_glass = True
 
-        # 사용된 부피만큼 채우기
-        delta_fill = used_volume / GLASS_CAPACITY
-        self.fill_amount = max(0.0, min(1.0, self.fill_amount + delta_fill))
+        # 여기서부터가 핵심: “충돌 기반 유입”
+        if hit_glass:
+            delta_fill = used_volume / GLASS_CAPACITY
+            self.fill_amount += delta_fill
+            self.fill_amount = max(0.0, min(1.0, self.fill_amount))
 
     # -------- 물줄기 경로 생성 --------
-    def _build_falling_only_stream(self, ray_start, pour_factor):
+    def _build_stream(self, ray_start, pour_factor):
         length = 150
         num_samples = 8
 
@@ -191,8 +197,6 @@ class Glass:
         s = (seg_b - seg_a)
 
         rxs = r.cross(s)
-        if abs(rxs) < 1e-6:
-            return None
 
         qp = q - p
         t = qp.cross(s) / rxs
