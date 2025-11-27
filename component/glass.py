@@ -71,9 +71,7 @@ class Glass:
             hit_glass = False
         else:
             # 잔 안쪽 벽 맞음 → 유입
-            self._build_falling_and_sliding_stream(
-                ray_start, hit_point, hit_side, pour_factor
-            )
+            self._build_falling_and_sliding_stream(ray_start, hit_point, hit_side, pour_factor)
             hit_glass = True
 
         # 여기서부터가 핵심: “충돌 기반 유입”
